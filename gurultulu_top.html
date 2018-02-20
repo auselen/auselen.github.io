@@ -1,0 +1,168 @@
+<!doctype html>
+<html>
+
+<head>
+  <title>WebGLsink</title>
+  <meta charset="utf-8">
+</head>
+
+<body>
+  <canvas id="glcanvas" width="640" height="640"></canvas>
+</body>
+
+<script>
+  var vertexShaderSource = `#version 300 es
+  in vec3 a_position;
+  out vec4 pos;
+  uniform float time;
+  const float M_PI = acos(-1.0);
+  
+  vec4 pointOnSphere(float theta, float phi, float r) {
+    phi = phi * M_PI / 180.0;
+    theta = theta * M_PI / 180.0;
+    float l = 0.7 + 0.3 * r; //+ mod(time/1000.0, 0.1);
+    float x = sin(theta) * cos(phi) * l;
+    float y = sin(theta) * sin(phi) * l;
+    float z = cos(theta) * l;
+    return vec4(x, y, z, 1);
+  }
+
+  void main() {
+    gl_Position = pointOnSphere(a_position.x, a_position.y, a_position.z);
+    vec4 t = vec4(0);
+    t.w = gl_Position.w;
+    float time2 = time * M_PI / 180.0;
+    t.y = gl_Position.y * cos(time2) - gl_Position.z * sin(time2);
+    t.z = gl_Position.y * sin(time2) + gl_Position.z * cos(time2);
+    t.x = gl_Position.x;
+    
+    gl_Position = t;
+
+    t.z = gl_Position.z * cos(time2) - gl_Position.x * sin(time2);
+    t.x = gl_Position.z * sin(time2) + gl_Position.x * cos(time2);
+    t.y = gl_Position.y;
+    gl_Position = t;
+    
+    //pos = normalize(vec2((a_position.x + time)/360.0, (a_position.y + time)/360.0));
+    //pos = a_position.xy;//vec2(gl_Position.x, gl_Position.y);
+    pos = vec4(gl_Position.xyz, a_position.z);
+  }`;
+
+  var fragmentShaderSource = `#version 300 es
+  precision highp float;
+  
+  out vec4 fragColor;
+  in vec4 pos;
+  void main() {
+    //fragColor = vec4(abs(pos.x + 180.0)/360.0, abs(pos.y)/180.0, 0, 1);
+    // DotProduct(v1, v2) / (Length(v1) * Length(v2))
+    float c = dot(pos.xyz, vec3(0,0,-1)) / length(pos) / 4.0;
+    fragColor = vec4(pos.w, c, c, 1);
+  }`;
+
+  function sphere() {
+    var pos = [];
+    var rands = Array(19);
+    for (var theta = 0; theta < 180; theta += 10) {
+      rands[theta/10] = Array(37);
+      for (var phi = -180; phi < 180; phi += 10) {
+        rands[theta/10][(phi + 180)/10] = Math.random();
+      }
+      rands[theta/10][36] = rands[theta/10][0];
+    }
+    rands[18] = rands[0];
+    for (var theta = 0; theta < 180; theta += 10) {
+      for (var phi = -180; phi < 190; phi += 10) {
+        const s = 10;
+        theta2 = theta + s;
+        phi2 = phi + s;
+        /*
+            .
+          . .
+        */
+        pos.push(...[theta, phi, rands[theta/10][(phi + 180)/10]]);
+        pos.push(...[theta2, phi, rands[theta2/10][(phi+180)/10]]);
+        pos.push(...[theta2, phi2, rands[theta2/10][(phi2+180)/10]]);
+        /*
+         . .
+         .
+        */
+        pos.push(...[theta2, phi2, rands[theta2/10][(phi2 + 180)/10]]);
+        pos.push(...[theta, phi2, rands[theta/10][(phi2 + 180)/10]]);
+        pos.push(...[theta, phi, rands[theta/10][(phi + 180)/10]]);
+      }
+    }
+    return new Float32Array(pos);
+  }
+
+  const canvas = document.querySelector("#glcanvas");
+  const gl = canvas.getContext("webgl2");
+  if (!gl) {
+    alert("noGL");
+  }
+  gl.enable(gl.DEPTH_TEST);
+  var vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
+  var fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
+
+  var program = createProgram(gl, vertexShader, fragmentShader);
+  gl.useProgram(program);
+
+  var positionAttributeLocation = gl.getAttribLocation(program, "a_position");
+  var vao = gl.createVertexArray();
+  gl.bindVertexArray(vao);
+
+  var positionBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+  var positions = sphere();
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
+  // Tell the attribute how to get data out of positionBuffer (ARRAY_BUFFER)
+  var size = 3;          // 3 components per iteration
+  var type = gl.FLOAT;   // the data is 32bit floats
+  var normalize = false; // don't normalize the data
+  var stride = 0;        // 0 = move forward size * sizeof(type) each iteration to get the next position
+  var offset = 0;        // start at the beginning of the buffer
+  gl.vertexAttribPointer(positionAttributeLocation, size, type, normalize, stride, offset);
+
+  gl.enableVertexAttribArray(positionAttributeLocation);
+
+  var j = 0;
+  function render(t) {
+    var timeLoc = gl.getUniformLocation(program, "time")
+    gl.uniform1f(timeLoc, j++ / 3.0);
+    // draw
+    var primitiveType = gl.TRIANGLES;
+    var offset = 0;
+    var count = positions.length / size;
+    gl.drawArrays(primitiveType, offset, count);
+    window.requestAnimationFrame(render);
+  }
+
+  window.requestAnimationFrame(render);
+
+  function createShader(gl, type, source) {
+    var shader = gl.createShader(type);
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    var success = gl.getShaderParameter(shader, gl.COMPILE_STATUS);
+    if (success) {
+      return shader;
+    }
+    console.log(gl.getShaderInfoLog(shader));
+    gl.deleteShader(shader);
+  }
+
+  function createProgram(gl, vertexShader, fragmentShader) {
+    var program = gl.createProgram();
+    gl.attachShader(program, vertexShader);
+    gl.attachShader(program, fragmentShader);
+    gl.linkProgram(program);
+    var success = gl.getProgramParameter(program, gl.LINK_STATUS);
+    if (success) {
+      return program;
+    }
+    console.log(gl.getProgramInfoLog(program));
+    gl.deleteProgram(program);
+  }
+</script>
+
+</html>
