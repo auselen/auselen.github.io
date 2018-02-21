@@ -40,19 +40,19 @@
   in vec4 pos;
   void main() {
     //fragColor = vec4((1.0 + pos.x) / 2.0, (1.0 + pos.y) / 2.0, (1.0 + pos.z) / 2.0, 1);
-    fragColor = vec4(0, 1, 0, 1);
+    fragColor = vec4(0, 1, 0, pos.z < 0.0 ? 1.0 : 0.0);
   }`;
 
   function dots() {
     var pos = [];
-    for (var i = 0; i < 10000; i++) {
+    for (var i = 0; i < 3000; i++) {
       var t = 360 * Math.random() * (Math.random()*2 - 1);
       var p = 360 * Math.random() * (Math.random()*2 - 1);
-      var vt = (Math.random()*2-1)/1;
-      var vp = (Math.random()*2-1)/1;
+      var vt = (Math.random()*2-1)*10;
+      var vp = (Math.random()*2-1)*10;
       pos.push(...[t, p, vt, vp]);
-      for (var j = 0; j < 20; j++) {
-        pos.push(...[t-j*vt/10.0, p-j*vp/10.0, vt, vp]);
+      for (var j = 0; j < 10 + Math.random() * 5; j++) {
+        pos.push(...[t-j*vt/20.0, p-j*vp/20.0, vt, vp]);
       }
     }
     return new Float32Array(pos);
@@ -93,7 +93,7 @@
   var j = 0;
   function render(t) {
     var timeLoc = gl.getUniformLocation(program, "time")
-    gl.uniform1f(timeLoc, j+=0.3);
+    gl.uniform1f(timeLoc, j+=0.03);
     // clear
     gl.clearColor(0.0, 0.0, 0.0, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT);
