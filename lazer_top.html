@@ -29,7 +29,7 @@
 
   void main() {
     gl_Position = pointOnSphere(a_position.x + a_position.z * time, a_position.y + a_position.w * time);
-    gl_PointSize = gl_Position.x*gl_Position.y*gl_Position.z * 3.0;
+    gl_PointSize = 1.0;//gl_Position.x*gl_Position.y*gl_Position.z * 3.0;
     pos = a_position;
   }`;
 
@@ -40,17 +40,20 @@
   in vec4 pos;
   void main() {
     //fragColor = vec4((1.0 + pos.x) / 2.0, (1.0 + pos.y) / 2.0, (1.0 + pos.z) / 2.0, 1);
-    fragColor = vec4(0, pos.x, 0, 1);
+    fragColor = vec4(0, 1, 0, 1);
   }`;
 
   function dots() {
     var pos = [];
-    for (i = 0; i < 100000; i++) {
+    for (var i = 0; i < 10000; i++) {
       var t = 360 * Math.random() * (Math.random()*2 - 1);
       var p = 360 * Math.random() * (Math.random()*2 - 1);
       var vt = (Math.random()*2-1)/1;
       var vp = (Math.random()*2-1)/1;
       pos.push(...[t, p, vt, vp]);
+      for (var j = 0; j < 20; j++) {
+        pos.push(...[t-j*vt/10.0, p-j*vp/10.0, vt, vp]);
+      }
     }
     return new Float32Array(pos);
   }
