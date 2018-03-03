@@ -46,26 +46,21 @@
   in vec3 pos;
   void main() {
     float c = dot(pos, vec3(0, 0, -1));
-    fragColor = vec4(1.0 - c, 0, 0, 1);
+    fragColor = vec4(c, 0.0, 0.0, 1);
   }`;
 
-  function pyramid() { // triangular pyramid
-    /*
-        A
-        D
-      B  C
-    */
-    var A = [0.0, 0.5, 0.0];
-    var B = [-0.5, 0.0, -0.5];
-    var C = [0.5, 0.0, -0.5];
-    var D = [0, 0.0, 0.5];
+  function tetrahedron() { // triangular pyramid
+    // https://en.wikipedia.org/wiki/Tetrahedron#Formulas_for_a_regular_tetrahedron
+    var A = [ Math.sqrt(8.0/9), 0 , -1.0/3 ]
+    var B = [ -Math.sqrt(2.0/9), Math.sqrt(2.0/3), -1.0/3 ]
+    var C = [ -Math.sqrt(2.0/9), -Math.sqrt(2.0/3), -1.0/3 ]
+    var D = [ 0 , 0 , 1.0 ]
     var pyramid = [
         ...[...A, ...B, ...C], // ... unpacks the array
         ...[...A, ...C, ...D],
         ...[...A, ...D, ...B],
         ...[...D, ...C, ...B],
     ];
-    console.log(pyramid);
     return pyramid;
   }
 
@@ -87,7 +82,7 @@
 
   var positionBuffer = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-  var positions = pyramid();
+  var positions = tetrahedron();
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
   // Tell the attribute how to get data out of positionBuffer (ARRAY_BUFFER)
   var size = 3;          // 3 components per iteration
