@@ -1,0 +1,327 @@
+<!doctype html>
+<html>
+
+<head>
+  <title>WebGL2.0 template 0.1.0</title>
+  <meta charset="utf-8">
+</head>
+
+<body>
+  <canvas id="glcanvas" width="640" height="640"></canvas>
+</body>
+
+<script>
+  var vertexShaderSource = `#version 300 es
+  in vec4 a_position;
+  out vec4 pos;
+  uniform float time;
+  const float M_PI = acos(-1.0);
+  
+  void main() {
+    gl_Position = vec4(a_position.xyz, 1);
+
+    // rotate
+    vec4 t = vec4(0);
+    t.w = gl_Position.w;
+    float time2 = time * M_PI / 180.0;
+    t.y = gl_Position.y * cos(time2) - gl_Position.z * sin(time2);
+    t.z = gl_Position.y * sin(time2) + gl_Position.z * cos(time2);
+    t.x = gl_Position.x;
+
+    gl_Position = t;
+/*
+    time2 *= 0.7;
+    t.z = gl_Position.z * cos(time2) - gl_Position.x * sin(time2);
+    t.x = gl_Position.z * sin(time2) + gl_Position.x * cos(time2);
+    t.y = gl_Position.y;
+    gl_Position = t;
+*/
+    pos = a_position;
+  }`;
+
+  var fragmentShaderSource = `#version 300 es
+  precision highp float;
+  
+  out vec4 fragColor;
+  in vec4 pos;
+  void main() {
+    //float c = dot(pos, vec3(0, 0, -1));
+    fragColor = vec4(1, pos.w, 0.0, 1);
+  }`;
+
+  function convexPolygon(edges, r, phi = 0, color = 0) {
+    if (edges < 3) {
+      throw "Edges can't be smaller than three."
+    }
+    var vertices = [];
+    for (var i = 0; i < edges; i++) {
+      var t = i * ((Math.PI * 2) / edges) + (Math.PI * phi);
+      var x = Math.cos(t) * r;
+      var y = Math.sin(t) * r;
+      vertices.push([x, y, 0, color]);
+    }
+    var triangles = [];
+    for (var i = 1; i < (edges - 1); i++) {
+      var a = vertices[0];
+      var b = vertices[i];
+      var c = vertices[i + 1];
+      triangles.push([a, b, c]);
+    }
+    return triangles;
+  }
+
+  function merge(polygon1, polygon2) {
+    var p1 = clone(polygon1);
+    var p2 = clone(polygon2);
+    return p1.concat(p2);
+  }
+
+  function convexPolygon2(edges, len, phi = 0, color = 0) {
+    // side = 2r sin (PI / n)
+    // r = side / (2*sin(PI / n)
+    var r = len / (2 * Math.sin(Math.PI / edges));
+    return convexPolygon(edges, r, phi, color);
+  }
+
+  function translate(triangles, x, y, z) {
+    var out = [];
+    for (var i = 0; i < triangles.length; i++) {
+      var t = []
+      for (var j = 0; j < triangles[i].length; j++) {
+        t.push([
+          triangles[i][j][0] + x,
+          triangles[i][j][1] + y,
+          triangles[i][j][2] + z,
+          triangles[i][j][3]
+          ]);
+      }
+      out.push(t);
+    }
+    return out;
+  }
+
+  function clone(triangles) {
+    var out = [];
+    for (var i = 0; i < triangles.length; i++) {
+      var t = []
+      for (var j = 0; j < triangles[i].length; j++) {
+        t.push([
+          triangles[i][j][0],
+          triangles[i][j][1],
+          triangles[i][j][2],
+          triangles[i][j][3]
+          ]);
+      }
+      out.push(t);
+    }
+    return out;
+  }
+
+  function rotateX(triangles, px) {
+    var out = [];
+    for (var i = 0; i < triangles.length; i++) {
+      var t = []
+      for (var j = 0; j < triangles[i].length; j++) {
+        var x = triangles[i][j][0];
+        var y = triangles[i][j][1];
+        var z = triangles[i][j][2];
+        var w = triangles[i][j][3];
+
+        var y1 = y * Math.cos(px) - z * Math.sin(px);
+        var z1 = y * Math.sin(px) + z * Math.cos(px);
+        var x1 = x;
+
+        t.push([x1, y1, z1, w]);
+      }
+      out.push(t);
+    }
+    return out;
+  }
+
+  function rotateY(triangles, py) {
+    var out = [];
+    for (var i = 0; i < triangles.length; i++) {
+      var t = []
+      for (var j = 0; j < triangles[i].length; j++) {
+        var x = triangles[i][j][0];
+        var y = triangles[i][j][1];
+        var z = triangles[i][j][2];
+        var w = triangles[i][j][3];
+
+        z1 = z * Math.cos(py) - x * Math.sin(py);
+        x1 = z * Math.sin(py) + x * Math.cos(py);
+        y1 = y;
+
+        t.push([x1, y1, z1, w]);
+      }
+      out.push(t);
+    }
+    return out;
+  }
+
+  function rotateZ(triangles, pz) {
+    var out = [];
+    for (var i = 0; i < triangles.length; i++) {
+      var t = []
+      for (var j = 0; j < triangles[i].length; j++) {
+        var x = triangles[i][j][0];
+        var y = triangles[i][j][1];
+        var z = triangles[i][j][2];
+        var w = triangles[i][j][3];
+        
+        x1 = x * Math.cos(pz) - y * Math.sin(pz);
+        y1 = x * Math.sin(pz) + y * Math.cos(pz);
+        z1 = z;
+  
+        t.push([x1, y1, z1, w]);
+      }
+      out.push(t);
+    }
+    return out;
+  }
+  
+  function fixCenter(triangles) {
+    var minx = 1000, maxx = -1000, miny = 1000, maxy = -1000, minz = -1000, maxz = 1000;
+    for (var i = 0; i < triangles.length; i++) {
+      for (var j = 0; j < triangles[i].length; j++) {
+        minx = Math.min(minx, triangles[i][j][0]);
+        maxx = Math.max(maxx, triangles[i][j][0]);
+        miny = Math.min(miny, triangles[i][j][1]);
+        maxy = Math.max(maxy, triangles[i][j][1]);
+        minz = Math.min(minz, triangles[i][j][2]);
+        maxz = Math.max(maxz, triangles[i][j][2]); 
+      }
+    }
+
+    var lx = (maxx - minx) / 2;
+    var ly = (maxy - miny) / 2;
+    var lz = (maxz - minz) / 2;
+
+    var out = [];
+    for (var i = 0; i < triangles.length; i++) {
+      var t = []
+      for (var j = 0; j < triangles[i].length; j++) {
+        var x = triangles[i][j][0];
+        var y = triangles[i][j][1];
+        var z = triangles[i][j][2];
+        var w = triangles[i][j][3];
+        
+        x -= lx;
+        y -= ly;
+        z -= lz;
+  
+        t.push([x, y, z, w]);
+      }
+      out.push(t);
+    }
+    return out;
+  }
+
+  function unpack(triangles) {
+    var arr = [];
+    for (var i = 0; i < triangles.length; i++) {
+      for (var j = 0; j < triangles[i].length; j++) {
+        arr.push(...triangles[i][j])
+      }
+    }
+    return arr;
+  }
+
+  const canvas = document.querySelector("#glcanvas");
+  const gl = canvas.getContext("webgl2");
+  if (!gl) {
+    alert("noGL");
+  }
+  gl.enable(gl.DEPTH_TEST);
+  var vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
+  var fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
+
+  var program = createProgram(gl, vertexShader, fragmentShader);
+  gl.useProgram(program);
+
+  var positionAttributeLocation = gl.getAttribLocation(program, "a_position");
+  var vao = gl.createVertexArray();
+  gl.bindVertexArray(vao);
+
+  var positionBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+  var hexagon = convexPolygon2(6, 0.3);
+  //console.log(hexagon);
+  hexagon = translate(hexagon, 0, 0, 0.9);
+  var hexagon2 = clone(hexagon);
+  //hexagon = rotateX(hexagon, Math.PI/4)
+  hexagon2 = rotateX(hexagon2, Math.PI/5.58)
+  pentagon = convexPolygon2(5, 0.35, 0, 1);
+  pentagon = translate(pentagon, 0, 0, 0.9)
+  pentagon = rotateZ(pentagon, Math.PI/5.3)
+  pentagon = rotateY(pentagon, Math.PI/7.1)
+  pentagon = rotateX(pentagon, Math.PI/10.5)
+  //console.log(hexagon);
+  var vertexFigure = merge(pentagon, merge(hexagon, hexagon2));
+  var vertexFigure2 = clone(vertexFigure);
+  //console.log(vertexFigure2)
+  //vertexFigure2 = fixCenter(vertexFigure2);
+  //console.log(vertexFigure2)
+  vertexFigure2 = rotateZ(vertexFigure2, -Math.PI/8);
+  vertexFigure2 = rotateX(vertexFigure2, Math.PI/12);
+  //vertexFigure2 = rotateY(vertexFigure2, Math.PI/7);
+  //vertexFigure = merge(vertexFigure, vertexFigure2);
+  var positions = unpack(vertexFigure2);
+  //console.log(positions);
+  //positions.push(...unpack(hexagon2));
+  //positions.push(...unpack(pentagon));
+  //console.log(positions);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
+  // Tell the attribute how to get data out of positionBuffer (ARRAY_BUFFER)
+  var size = 4;          // components per iteration
+  var type = gl.FLOAT;   // the data is 32bit floats
+  var normalize = false; // don't normalize the data
+  var stride = 0;        // 0 = move forward size * sizeof(type) each iteration to get the next position
+  var offset = 0;        // start at the beginning of the buffer
+  gl.vertexAttribPointer(positionAttributeLocation, size, type, normalize, stride, offset);
+
+  gl.enableVertexAttribArray(positionAttributeLocation);
+
+  var j = 0;
+  function render(t) {
+    // gl.clearColor(0.0, 0.0, 0.0, 1.0);
+    // gl.clear(gl.COLOR_BUFFER_BIT);
+    var timeLoc = gl.getUniformLocation(program, "time")
+    gl.uniform1f(timeLoc, j++);
+    // draw
+    var primitiveType = gl.TRIANGLES;
+    var offset = 0;
+    var count = positions.length / size;
+    gl.drawArrays(primitiveType, offset, count);
+    window.requestAnimationFrame(render);
+  }
+
+  window.requestAnimationFrame(render);
+
+  function createShader(gl, type, source) {
+    var shader = gl.createShader(type);
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    var success = gl.getShaderParameter(shader, gl.COMPILE_STATUS);
+    if (success) {
+      return shader;
+    }
+    console.log(gl.getShaderInfoLog(shader));
+    gl.deleteShader(shader);
+  }
+
+  function createProgram(gl, vertexShader, fragmentShader) {
+    var program = gl.createProgram();
+    gl.attachShader(program, vertexShader);
+    gl.attachShader(program, fragmentShader);
+    gl.linkProgram(program);
+    var success = gl.getProgramParameter(program, gl.LINK_STATUS);
+    if (success) {
+      return program;
+    }
+    console.log(gl.getProgramInfoLog(program));
+    gl.deleteProgram(program);
+  }
+</script>
+
+</html>
