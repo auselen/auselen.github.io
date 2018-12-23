@@ -7,14 +7,124 @@
 </head>
 
 <body>
-  <script src="nefertiti.js"></script>
+  <script src="draco_decoder.js"></script>
   <canvas id="glcanvas" width="640" height="640"></canvas>
 </body>
 
 <script>
-  const indexes = new Uint32Array(Uint8Array.from(atob(indices), c => c.charCodeAt(0)).buffer)
-  const vertexes = new Float32Array(Uint8Array.from(atob(vertices), c => c.charCodeAt(0)).buffer)
+const canvas = document.querySelector("#glcanvas");
+const gl = canvas.getContext("webgl2");
+if (!gl) {
+  alert("noGL");
+}
+gl.enable(gl.DEPTH_TEST);
+var program;
+var indexes;
+var vertexes;
 
+const req = new XMLHttpRequest();
+req.open("GET", "/nefertiti/Nefertiti.drc", true);
+req.responseType = "arraybuffer";
+req.onload = function(e) {
+	const arrayBuffer = req.response;
+  if (arrayBuffer) {
+		console.log("decoding...");
+		const byteArray = new Uint8Array(arrayBuffer);
+		const draco = DracoDecoderModule();
+		const buffer = new draco.DecoderBuffer();
+		buffer.Init(byteArray, byteArray.length);
+		const decoder = new draco.Decoder();
+		const mesh = new draco.Mesh();
+		decoder.DecodeBufferToMesh(buffer, mesh);
+		console.log("done.");
+    indexes = getIndices(draco, decoder, mesh, false);
+		vertexes = getVertices(draco, decoder, mesh);
+    load();
+    draco.destroy(buffer);
+	}
+}
+
+function normalize(vertices, offset) {
+	var min = Number.MAX_SAFE_INTEGER;
+	var max = 0;
+  for (var i = offset; i < vertices.length; i += 3) {
+    if (vertices[i] > max)
+      max = vertices[i];
+    if (vertices[i] < min)
+      min = vertices[i];
+	}
+  if (Math.abs(min) > max)
+    max = Math.abs(min);	
+  for (var i = offset; i < vertices.length; i += 3)
+    vertices[i] /= max;
+}
+
+// next two functions are from https://github.com/kioku-systemk/dracoSample
+function getVertices(draco, decoder, dracoGeometry) {
+  const posAttId = decoder.GetAttributeId(dracoGeometry, draco.POSITION);
+  if (posAttId == -1) {
+    const errorMsg = 'Draco: No position attribute found.';
+    console.error(errorMsg);
+    draco.destroy(decoder);
+    draco.destroy(dracoGeometry);
+    throw new Error(errorMsg);
+  }
+  const posAttribute = decoder.GetAttribute(dracoGeometry, posAttId);
+  const posAttributeData = new draco.DracoFloat32Array();
+  decoder.GetAttributeFloatForAllPoints(dracoGeometry, posAttribute, posAttributeData);
+
+  const numPoints = dracoGeometry.num_points();
+  const numVertces = numPoints * 3;
+  const vertices = new Float32Array(numVertces);
+
+  for (var i = 0; i < numVertces; i += 1) {
+    vertices[i] = posAttributeData.GetValue(i);  // XYZ XYZ
+  }
+  normalize(vertices, 0);
+  normalize(vertices, 1);
+  normalize(vertices, 2);
+  draco.destroy(posAttributeData);
+  console.log("vertices", vertices.length)
+  return vertices;
+}
+
+function getIndices(draco, decoder, dracoGeometry, triangleStripDrawMode) {
+  let indices;
+  if (triangleStripDrawMode === undefined) {
+    triangleStripDrawMode = false;
+  }
+
+  if (triangleStripDrawMode) {
+    const stripsArray = new draco.DracoInt32Array();
+    const numStrips = decoder.GetTriangleStripsFromMesh(dracoGeometry, stripsArray);
+    indices = new Uint32Array(stripsArray.size());
+    for (var i = 0; i < stripsArray.size(); ++i) {
+      indices[i] = stripsArray.GetValue(i);
+    }
+    draco.destroy(stripsArray);
+  } else { // TRIANGLES
+    const numFaces = dracoGeometry.num_faces();
+    console.log("faces", numFaces)
+    const numIndices = numFaces * 3;
+    indices = new Uint32Array(numIndices);
+    const ia = new draco.DracoInt32Array();
+    for (let i = 0; i < numFaces; ++i) {
+      decoder.GetFaceFromMesh(dracoGeometry, i, ia);
+      var index = i * 3;
+      indices[index] = ia.GetValue(0);
+      indices[index + 1] = ia.GetValue(1);
+      indices[index + 2] = ia.GetValue(2);
+    }
+    draco.destroy(ia);
+  }
+  return indices;
+}
+
+req.send(null);
+console.log("loading mesh");
+
+function load() {
+  console.log("setting up scene");
   var vertexShaderSource = `#version 300 es
   in vec3 a_position;
   out vec3 pos;
@@ -53,16 +163,10 @@
     fragColor = vec4(c, c, c, 1);
   }`;
 
-  const canvas = document.querySelector("#glcanvas");
-  const gl = canvas.getContext("webgl2");
-  if (!gl) {
-    alert("noGL");
-  }
-  gl.enable(gl.DEPTH_TEST);
   var vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
   var fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
 
-  var program = createProgram(gl, vertexShader, fragmentShader);
+  program = createProgram(gl, vertexShader, fragmentShader);
   gl.useProgram(program);
   
   var vao = gl.createVertexArray();
@@ -85,22 +189,21 @@
   var positionAttributeLocation = gl.getAttribLocation(program, "a_position");
   gl.vertexAttribPointer(positionAttributeLocation, size, type, normalize, stride, offset);
   gl.enableVertexAttribArray(positionAttributeLocation);
+  console.log("scene done");
+  window.requestAnimationFrame(render);
+}
 
   var j = 0;
-  function render(t) {
-    // gl.clearColor(0.0, 0.0, 0.0, 1.0);
-    // gl.clear(gl.COLOR_BUFFER_BIT);
-    var timeLoc = gl.getUniformLocation(program, "time")
-    gl.uniform1f(timeLoc, j++ / 3.0);
-    // draw
-    var primitiveType = gl.TRIANGLES;
-    var offset = 0;
-    var count = vertexes.length / size;
-    gl.drawElements(primitiveType, indexes.length, gl.UNSIGNED_INT, 0);
-    window.requestAnimationFrame(render);
-  }
-
+function render(t) {
+  // gl.clearColor(0.0, 0.0, 0.0, 1.0);
+  // gl.clear(gl.COLOR_BUFFER_BIT);
+  var timeLoc = gl.getUniformLocation(program, "time")
+  gl.uniform1f(timeLoc, j++ / 3.0);
+  // draw
+  var primitiveType = gl.TRIANGLES;
+  gl.drawElements(primitiveType, indexes.length, gl.UNSIGNED_INT, 0);
   window.requestAnimationFrame(render);
+}
 
   function createShader(gl, type, source) {
     var shader = gl.createShader(type);
@@ -126,6 +229,7 @@
     console.log(gl.getProgramInfoLog(program));
     gl.deleteProgram(program);
   }
+
 </script>
 
 </html>
